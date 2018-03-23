@@ -1,4 +1,5 @@
-# Copyright 2017 Intel Corporation
+#
+# Copyright 2018 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,26 +15,21 @@
 # ------------------------------------------------------------------------------
 
 [package]
-name = "sawtooth_sdk"
-version = "0.1.0"
-authors = ["Bitwise IO, Inc.", "Intel Corporation"]
+name = "smallbank_rust"
+version = "1.0.0"
+authors = ["Intel Corporation"]
 build = "build.rs"
 
 [dependencies]
-protobuf="1.4.1"
-secp256k1 = "0.7.1"
-rand = "0.4.2"
-rust-crypto = "0.2.36"
+sawtooth_sdk = { path = "../../../sdk/rust" }
+rust-crypto = "0.2"
+rustc-serialize = "0.3"
 zmq = { git = "https://github.com/erickt/rust-zmq", branch = "release/v0.8" }
-uuid = { version = "0.5", features = ["v4"] }
+clap = "2"
+protobuf = "1.4"
 log = "0.3"
-libc = "0.2"
-ctrlc = { version = "3.0", features = ["termination"] }
-
-[dev-dependencies]
-env_logger = "0.3"
+log4rs = "0.7"
 
 [build-dependencies]
-cc = "1.0"
 protoc-rust = "1.4"
 glob = "0.2"

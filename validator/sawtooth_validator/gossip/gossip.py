@@ -238,9 +238,9 @@ class Gossip(object):
                 self._topology.set_connection_status(connection_id,
                                                      PeerStatus.TEMP)
             else:
-                LOGGER.debug("Connection unregister failed as connection "
-                             "was not registered: %s",
-                             connection_id)
+                LOGGER.warning("Connection unregister failed as connection "
+                               "was not registered: %s",
+                               connection_id)
 
     def get_time_to_live(self):
         time_to_live = \
@@ -761,7 +761,11 @@ class ConnectionManager(InstrumentedThread):
 
             # If the connection does exist, request peers.
             if conn_id is not None:
-                if conn_id in peers:
+                if not self._network.is_connection_handshake_complete(conn_id):
+                    # has not finished the authorization (trust/challenge)
+                    # process yet.
+                    continue
+                elif conn_id in peers:
                     # connected and peered - we've already sent peer request
                     continue
                 else:

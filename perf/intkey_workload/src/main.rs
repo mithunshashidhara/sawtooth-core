@@ -28,9 +28,13 @@ mod intkey_addresser;
 mod intkey_iterator;
 mod intkey_transformer;
 
+use std::convert::From;
 use std::error::Error;
 use std::io::Read;
+use std::fmt;
 use std::fs::File;
+use std::num::ParseFloatError;
+use std::num::ParseIntError;
 use std::str::Split;
 
 use clap::{App, Arg, ArgMatches};
@@ -125,6 +129,15 @@ fn get_arg_matches<'a>() -> ArgMatches<'a> {
                 .help("Comma separated list of u8 to make the workload reproduceable"),
         )
         .arg(
+            Arg::with_name("unnecessary")
+                .long("unnecessary")
+                .takes_value(true)
+                .number_of_values(1)
+                .default_value("0.0")
+                .value_name("UNNECESSARY")
+                .help("Probability of a transaction having a satisfiable but unnecessary depedendency"),
+        )
+        .arg(
             Arg::with_name("unsatisfiable")
                 .long("unsatisfiable")
                 .takes_value(true)
@@ -176,21 +189,52 @@ fn get_arg_matches<'a>() -> ArgMatches<'a> {
         .get_matches()
 }
 
+fn err_if_out_of_range(val: f32) -> Result<f32, IntKeyCliError> {
+    if val < 0.0 || val > 1.0 {
+        return Err(IntKeyCliError {
+            msg: "Value must be between 0.0 and 1.0, inclusively".to_string(),
+        });
+    }
+    Ok(val)
+}
+
+fn greater_than_zero32(val: u32) -> Result<u32, IntKeyCliError> {
+    if val <= 0 {
+        return Err(IntKeyCliError {
+            msg: "Value must be greater than zero".to_string(),
+        });
+    }
+    Ok(val)
+}
+
+fn greater_than_zero(val: usize) -> Result<usize, IntKeyCliError> {
+    if val <= 0 {
+        return Err(IntKeyCliError {
+            msg: "Value must be greater than zero".to_string(),
+        });
+    }
+    Ok(val)
+}
+
 fn run_load_command(args: &ArgMatches) -> Result<(), Box<Error>> {
     let batch_size: usize = args.value_of("batch-size")
         .unwrap_or("1")
         .parse()
-        .map_err(|_| String::from("batch-size must be a positive integer"))?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(greater_than_zero)?;
 
     let num_names: usize = args.value_of("names")
         .unwrap_or("100")
         .parse()
-        .map_err(|err: std::num::ParseIntError| String::from(err.description()))?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(greater_than_zero)?;
 
     let urls: Vec<String> = args.value_of("urls")
         .unwrap_or("http://127.0.0.1:8008")
         .parse()
-        .map_err(|_| String::from("urls are a comma separated list of strings"))
+        .map_err(|_| {
+            String::from("urls are a comma separated list of strings")
+        })
         .and_then(|st| {
             let s: String = st;
             let split: Split<&str> = s.split(",");
@@ -200,29 +244,38 @@ fn run_load_command(args: &ArgMatches) -> Result<(), Box<Error>> {
     let rate: usize = args.value_of("rate")
         .unwrap_or("10")
         .parse()
-        .map_err(|_| String::from("rate must be a positive integer"))?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(greater_than_zero)?;
 
     let unsatisfiable: f32 = args.value_of("unsatisfiable")
         .unwrap_or("0.0")
         .parse()
-        .map_err(|_| {
-            String::from("unsatisfiable must be a positive float in the range [0.0, 1.0]")
-        })?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(err_if_out_of_range)?;
+
+    let unnecessary: f32 = args.value_of("unnecessary")
+        .unwrap_or("0.0")
+        .parse()
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(err_if_out_of_range)?;
 
     let wildcard: f32 = args.value_of("wildcard")
         .unwrap_or("0.0")
         .parse()
-        .map_err(|_| String::from("wildcard must be a positive float in the range [0.0, 1.0]"))?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(err_if_out_of_range)?;
 
     let invalid: f32 = args.value_of("invalid")
         .unwrap_or("0.0")
         .parse()
-        .map_err(|_| String::from("invalid must be a positive float in the range [0.0, 1.0]"))?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(err_if_out_of_range)?;
 
     let display: u32 = args.value_of("display")
         .unwrap_or("30")
         .parse()
-        .map_err(|_| String::from("display must be a positive integer"))?;
+        .map_err(|err| IntKeyCliError::from(err))
+        .and_then(greater_than_zero32)?;
 
     let username = args.value_of("username");
     let password = args.value_of("password");
@@ -273,8 +326,14 @@ fn run_load_command(args: &ArgMatches) -> Result<(), Box<Error>> {
 
     let signer_ref = &signer;
 
-    let mut transformer =
-        IntKeyTransformer::new(signer_ref, &seed, unsatisfiable, wildcard, num_names);
+    let mut transformer = IntKeyTransformer::new(
+        signer_ref,
+        &seed,
+        unsatisfiable,
+        wildcard,
+        num_names,
+        unnecessary,
+    );
 
     let mut transaction_iterator = IntKeyIterator::new(num_names, invalid, &seed)
         .map(|payload| transformer.intkey_payload_to_transaction(payload))
@@ -299,5 +358,38 @@ fn run_load_command(args: &ArgMatches) -> Result<(), Box<Error>> {
     match run_workload(&mut batchlist_iter, time_to_wait, display, urls, basic_auth) {
         Ok(_) => Ok(()),
         Err(err) => Err(Box::new(err)),
+    }
+}
+
+#[derive(Debug)]
+struct IntKeyCliError {
+    msg: String,
+}
+
+impl Error for IntKeyCliError {
+    fn description(&self) -> &str {
+        self.msg.as_str()
+    }
+}
+
+impl fmt::Display for IntKeyCliError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", format!("IntKeyCliError {}", self.msg))
+    }
+}
+
+impl From<ParseIntError> for IntKeyCliError {
+    fn from(error: ParseIntError) -> Self {
+        IntKeyCliError {
+            msg: error.description().to_string(),
+        }
+    }
+}
+
+impl From<ParseFloatError> for IntKeyCliError {
+    fn from(error: ParseFloatError) -> Self {
+        IntKeyCliError {
+            msg: error.description().to_string(),
+        }
     }
 }

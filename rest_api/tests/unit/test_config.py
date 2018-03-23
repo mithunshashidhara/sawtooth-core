@@ -114,3 +114,13 @@ class TestRestApiConfig(unittest.TestCase):
             os.environ.clear()
             os.environ.update(orig_environ)
             shutil.rmtree(directory)
+            
+    def test_rest_api_config_load_from_file_ne(self):
+        '''Tests with the file name which does not exists  '''
+
+       
+        filename = os.path.join('res_api.toml')
+        config = load_toml_rest_api_config(filename)
+
+            
+        
